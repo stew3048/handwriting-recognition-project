@@ -38,4 +38,56 @@
 
 ---
 
-**產出位置**：CNN run 目錄 `outputs/runs/20260208_155516_mnist_cnn/` 含 eval_results.txt、embedding_pca.png、embedding_tsne.png、top10_worst_cases.png、worst10_analysis.md；整體對照表見 `outputs/cnn_vs_mlp_test_metrics.md`。
+## 五、MLP vs CNN 筆記（來源：`C:\Users\yiching\handwriting-recognition-project\node`）
+
+### 總結
+
+因為 MLP 是全連結神經網路，它不像 CNN 內建局部性與平移等 inductive bias，所以本身沒有明確的空間結構假設；
+相對地，CNN 透過局部卷積與權重共享，自然保留了影像的空間關係。
+MLP 的表達能力其實非常彈性，但正因為缺乏這些結構性假設，它通常需要更多資料才能學到穩定、可泛化的表示，否則容易 overfitting；
+在這個 MNIST 的例子中，MLP 不容易快速學到「某個視覺 pattern 在不同位置出現仍屬於同一概念」，因此在效率與穩定性上不如 CNN。
+
+### 自問自答 QA
+
+- **Q：那為什麼不用 MLP 就好？**
+- **A：** 在影像這種高度結構化的資料上，適當的 inductive bias 其實比模型彈性更重要，因為它能大幅降低 sample complexity。
+
+---
+
+## 六、runs 內 .md 統整（Worst 10 分析）
+
+兩 run 目錄內各有 **worst10_analysis.md**，內容統整如下。
+
+### 6.1 CNN run（20260208_155516_mnist_cnn）— 本 run 的 Worst 10 明細
+
+| Rank | GT | Pred | Confidence |
+|------|-----|------|------------|
+| 1 | 8 | 9 | 0.3551 |
+| 2 | 9 | 4 | 0.3951 |
+| 3 | 7 | 2 | 0.4205 |
+| 4 | 8 | 2 | 0.4721 |
+| 5 | 9 | 7 | 0.4825 |
+| 6 | 9 | 5 | 0.4909 |
+| 7 | 5 | 3 | 0.4946 |
+| 8 | 2 | 3 | 0.5142 |
+| 9 | 5 | 9 | 0.5193 |
+| 10 | 4 | 6 | 0.5247 |
+
+**混淆對**：8→9、9→4、7→2、8→2、9→7、9→5、5→3、2→3、5→9、4→6（各 1 筆）。多屬視覺相似（4/9、3/5/8、7/2、4/6 等）或書寫模糊邊界樣本；CNN 仍可能在此類樣本上低 confidence 出錯。
+
+### 6.2 MLP run（20260208_144400_mnist_mlp）— 通用 Worst 10 說明
+
+該 run 的 worst10_analysis.md 為**通用版**：說明「Top 10 worst」定義、MNIST 常見數字混淆對（4↔9、3↔5↔8、7↔1、2↔7、5↔6、0↔6/8）、為何會進 worst 10（ambiguous writing、MLP 無局部結構、normalization 與邊界），以及如何對應 run（看 top10_worst_cases.png、對照 GT/Pred）。小結：視覺相似、書寫模糊、模型限制（MLP 對細微筆畫較不敏感）；改善方向為 data augmentation、換 CNN、或 dropout。
+
+### 6.3 對照
+
+- **CNN**：有本 run 的 10 筆明細表與混淆對統計，錯誤多為人類也難判的模糊樣本。
+- **MLP**：為通用原因說明，強調無局部結構導致邊界樣本易進 worst 10；實務上可對照該 run 的 top10_worst_cases.png 解讀。
+
+---
+
+**產出位置**：
+
+- **CNN run** `outputs/runs/20260208_155516_mnist_cnn/`：eval_results.txt、embedding_pca.png、embedding_tsne.png、top10_worst_cases.png、**worst10_analysis.md**、train_curves.png、experiments_cnn.csv。
+- **MLP run** `outputs/runs/20260208_144400_mnist_mlp/`：同上結構，含 **worst10_analysis.md**。
+- 整體對照表：`outputs/cnn_vs_mlp_test_metrics.md`。

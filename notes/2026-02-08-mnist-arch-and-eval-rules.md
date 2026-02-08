@@ -10,7 +10,7 @@
 - embedding_tsne.png  
 - eval_results.txt  
 
-詳見 [node/RULES.md](RULES.md)。
+詳見 [RULES.md](RULES.md)。
 
 ---
 
