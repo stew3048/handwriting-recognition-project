@@ -3,10 +3,10 @@ data/*
 !data/.gitkeep
 outputs/*
 !outputs/.gitkeep
-# 僅追蹤 runs 內 .md（日誌／分析）
+# runs 內全部檔案都進版控
 !outputs/runs/
 !outputs/runs/*/
-!outputs/runs/*/*.md
+!outputs/runs/*/*
 
 # Python
 __pycache__/

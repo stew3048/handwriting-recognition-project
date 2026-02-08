@@ -1,0 +1,2 @@
+checkpoint=outputs/runs/20260208_144400_mnist_mlp/best_mnist_mlp.pt model=mlp
+Test loss=0.0894  Test acc=0.9783

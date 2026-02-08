@@ -1,0 +1,2 @@
+checkpoint=outputs/runs/20260208_155516_mnist_cnn/best_mnist_cnn.pt model=cnn
+Test loss=0.0288  Test acc=0.9913
