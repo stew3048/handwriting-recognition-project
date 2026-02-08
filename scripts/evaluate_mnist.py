@@ -23,16 +23,19 @@ sys.path.insert(0, str(ROOT))
 
 from models.mlp import MLP
 from models.cnn import CNN
+from models.resnet import ResNet
 from scripts.datasets import get_mnist_loaders
 from scripts.train_utils import evaluate
 
 
 def build_model(model_type, device):
-    """Build MLP or CNN with same arch as training. num_classes=10 for MNIST."""
+    """Build MLP, CNN, or ResNet with same arch as training. num_classes=10 for MNIST."""
     if model_type == "mlp":
         model = MLP(input_size=784, hidden_sizes=(256, 128), num_classes=10, dropout=0.0)
-    else:
+    elif model_type == "cnn":
         model = CNN(num_classes=10, dropout=0.0)
+    else:
+        model = ResNet(num_classes=10, dropout=0.0)
     return model.to(device)
 
 
@@ -51,6 +54,7 @@ def collect_predictions(model, test_loader, device):
             losses = criterion(logits, labels)
             for i in range(images.size(0)):
                 rows.append({
+                    "idx": len(rows),
                     "image": images[i].cpu().squeeze(0),
                     "gt": labels[i].item(),
                     "pred": preds[i].item(),
@@ -168,7 +172,7 @@ def collect_embeddings(model, test_loader, device):
 def main():
     p = argparse.ArgumentParser(description="Evaluate MNIST model on test set and produce visualizations.")
     p.add_argument("--checkpoint", type=str, required=True, help="Path to checkpoint (e.g. outputs/best_mnist_cnn.pt)")
-    p.add_argument("--model", type=str, required=True, choices=["mlp", "cnn"])
+    p.add_argument("--model", type=str, required=True, choices=["mlp", "cnn", "resnet"])
     p.add_argument("--output_dir", type=str, default=None, help="Defaults to outputs/")
     p.add_argument("--n_sample", type=int, default=25, help="Number of random samples for pred_vs_gt grid")
     p.add_argument("--seed", type=int, default=42)
@@ -215,6 +219,23 @@ def main():
 
     # 3 & 4. Embedding extraction and visualization
     embeddings, labels_gt = collect_embeddings(model, test_loader, device)
+    worst10_indices = [r["idx"] for r in worst10] if worst10 else []
+
+    def scatter_worst10_on_embedding(ax, emb_2d, indices_in_emb):
+        """Overlay worst-10 with special marker (boundary evidence)."""
+        if not indices_in_emb:
+            return
+        ax.scatter(
+            emb_2d[indices_in_emb, 0],
+            emb_2d[indices_in_emb, 1],
+            marker="*",
+            s=280,
+            c="none",
+            edgecolors="red",
+            linewidths=2,
+            label="Worst 10 (boundary)",
+            zorder=5,
+        )
 
     # PCA (mandatory)
     pca = PCA(n_components=2, random_state=args.seed)
@@ -223,20 +244,30 @@ def main():
     for c in range(10):
         mask = labels_gt == c
         ax.scatter(emb_2d_pca[mask, 0], emb_2d_pca[mask, 1], label=str(c), alpha=0.6, s=10)
+    scatter_worst10_on_embedding(ax, emb_2d_pca, worst10_indices)
     ax.legend()
-    ax.set_title("Embedding (PCA 2D), colored by GT label")
+    ax.set_title("Embedding (PCA 2D), colored by GT label — Worst 10 at boundaries")
     plt.savefig(out_dir / "embedding_pca.png", dpi=120, bbox_inches="tight")
     plt.close()
 
     # t-SNE: fixed init so same seed gives same figure every time (init='pca' + random_state)
     if not args.no_tsne:
         n_tsne = min(args.tsne_sample, len(embeddings))
+        n_tsne = max(n_tsne, len(worst10_indices))  # ensure worst 10 are included when subsampling
         if n_tsne < len(embeddings):
-            idx = np.random.choice(len(embeddings), n_tsne, replace=False)
+            other = [i for i in range(len(embeddings)) if i not in set(worst10_indices)]
+            need = n_tsne - len(worst10_indices)
+            idx = list(worst10_indices) + list(
+                np.random.choice(other, size=min(need, len(other)), replace=False)
+            )
             emb_sub = embeddings[idx]
             lab_sub = labels_gt[idx]
+            worst10_mask = np.zeros(len(idx), dtype=bool)
+            worst10_mask[: len(worst10_indices)] = True
         else:
             emb_sub, lab_sub = embeddings, labels_gt
+            worst10_mask = np.zeros(len(embeddings), dtype=bool)
+            worst10_mask[worst10_indices] = True
         tsne = TSNE(
             n_components=2,
             random_state=args.seed,
@@ -248,8 +279,20 @@ def main():
         for c in range(10):
             mask = lab_sub == c
             ax.scatter(emb_2d_tsne[mask, 0], emb_2d_tsne[mask, 1], label=str(c), alpha=0.6, s=10)
+        if worst10_mask.any():
+            ax.scatter(
+                emb_2d_tsne[worst10_mask, 0],
+                emb_2d_tsne[worst10_mask, 1],
+                marker="*",
+                s=280,
+                c="none",
+                edgecolors="red",
+                linewidths=2,
+                label="Worst 10 (boundary)",
+                zorder=5,
+            )
         ax.legend()
-        ax.set_title("Embedding (t-SNE 2D), colored by GT label")
+        ax.set_title("Embedding (t-SNE 2D), colored by GT label — Worst 10 at boundaries")
         plt.savefig(out_dir / "embedding_tsne.png", dpi=120, bbox_inches="tight")
         plt.close()
 

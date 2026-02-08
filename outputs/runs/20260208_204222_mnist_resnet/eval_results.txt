@@ -1,0 +1,2 @@
+checkpoint=outputs/runs/20260208_204222_mnist_resnet/best_mnist_resnet.pt model=resnet
+Test loss=0.0246  Test acc=0.9926
