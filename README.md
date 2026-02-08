@@ -36,13 +36,29 @@ handwriting-recognition-project/
 
 ## 資料集
 
-（待補充：資料來源、下載方式、放置路徑與格式說明。）
+- **MNIST**：手寫數字 0–9，執行訓練腳本時會自動下載到 `data/mnist/`。
+- **EMNIST Letters**：英文字母 A–Z（26 類），自動下載到 `data/emnist/`。
 
 ---
 
 ## 訓練
 
-（待補充：訓練指令與參數說明。）
+從專案根目錄執行（首次會自動下載資料）：
+
+```bash
+# MNIST + MLP（預設 10 epochs）
+python scripts/train_mnist_mlp.py
+
+# MNIST + CNN
+python scripts/train_mnist_cnn.py
+
+# 英文字母 + CNN（或 --model mlp）
+python scripts/train_emnist_letters.py --model cnn
+```
+
+常用參數：`--epochs`、`--batch_size`、`--lr`、`--augment`、`--save_best`、`--out_dir`。若遇 CUDA/cuDNN 錯誤可加 `--cpu` 強制用 CPU。快速驗證可加 `--epochs 1`。
+
+實驗紀錄會寫入 `outputs/experiments_*.csv`，checkpoint 存於 `outputs/`。調參可參考 `configs/train_mnist_example.yaml`。
 
 ---
 

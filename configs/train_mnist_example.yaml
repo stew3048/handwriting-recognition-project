@@ -1,0 +1,23 @@
+# Phase 3 調參範例：MNIST 超參數（可手動對照，或之後用 script 讀取）
+# 目標：把 val acc tune 到 >98%
+
+train:
+  epochs: 15
+  batch_size: 64
+  lr: 0.001
+  optimizer: Adam   # 或 SGD
+  weight_decay: 0.0 # 可試 1e-4 防 overfitting
+
+model:
+  # MLP
+  hidden_sizes: [256, 128]
+  dropout: 0.2     # 可試 0.2 ~ 0.5
+  # CNN 用 scripts/train_mnist_cnn.py，可加 --dropout 0.2
+
+data:
+  augment: true     # RandomAffine 小幅度平移/縮放
+  val_ratio: 0.1
+
+output:
+  out_dir: outputs
+  save_best: true
