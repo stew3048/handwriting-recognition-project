@@ -7,6 +7,9 @@ outputs/*
 !outputs/runs/
 !outputs/runs/*/
 !outputs/runs/*/*
+# robustness 總結圖（日誌引用）
+!outputs/robustness/
+!outputs/robustness/*.png
 
 # Python
 __pycache__/
