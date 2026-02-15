@@ -1,9 +1,10 @@
 """
 小型 ResNet：適配 MNIST 28x28 灰階，約 4～6 層卷積 + residual，輸出 10 類。
+可選 embedding_dim（如 128）時插入 64→embedding_dim→num_classes，forward 回傳 (logits, embeddings)。
 """
 import torch
 import torch.nn as nn
-from typing import Tuple
+from typing import Tuple, Union
 
 
 def _conv3x3(in_ch: int, out_ch: int, stride: int = 1) -> nn.Conv2d:
@@ -42,9 +43,10 @@ class ResNet(nn.Module):
     Stem -> 3 layers of BasicBlocks (16, 32, 64 channels) -> global pool -> FC.
     """
 
-    def __init__(self, num_classes: int = 10, dropout: float = 0.0):
+    def __init__(self, num_classes: int = 10, dropout: float = 0.0, embedding_dim: int = None):
         super().__init__()
         self.num_classes = num_classes
+        self.embedding_dim = embedding_dim
         self.in_ch = 16
         # stem: 28x28x1 -> 14x14x16
         self.stem = nn.Sequential(
@@ -61,7 +63,16 @@ class ResNet(nn.Module):
         self.layer3 = self._make_layer(32, 64, 2, stride=2)
         self.avgpool = nn.AdaptiveAvgPool2d(1)
         self.dropout = nn.Dropout(dropout)
-        self.fc = nn.Linear(64, num_classes)
+        if embedding_dim is not None:
+            self.feat = nn.Linear(64, embedding_dim)
+            self.bn_feat = nn.BatchNorm1d(embedding_dim)
+            self.relu_feat = nn.ReLU(inplace=True)
+            self.fc = nn.Linear(embedding_dim, num_classes)
+        else:
+            self.feat = None
+            self.bn_feat = None
+            self.relu_feat = None
+            self.fc = nn.Linear(64, num_classes)
 
     def _make_layer(self, in_ch: int, out_ch: int, num_blocks: int, stride: int) -> nn.Sequential:
         blocks = [_BasicBlock(in_ch, out_ch, stride)]
@@ -69,7 +80,7 @@ class ResNet(nn.Module):
             blocks.append(_BasicBlock(out_ch, out_ch, 1))
         return nn.Sequential(*blocks)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         x = self.stem(x)
         x = self.layer1(x)
         x = self.layer2(x)
@@ -77,16 +88,24 @@ class ResNet(nn.Module):
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
         x = self.dropout(x)
+        if self.embedding_dim is not None:
+            embeddings = self.relu_feat(self.bn_feat(self.feat(x)))
+            logits = self.fc(embeddings)
+            return logits, embeddings
         return self.fc(x)
 
     def forward_embedding(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Return (embedding, logits). Embedding = 64-dim before final Linear."""
+        """Return (embedding, logits). With embedding_dim: 128-dim; else 64-dim before final Linear."""
         x = self.stem(x)
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
-        embedding = self.dropout(x)
-        logits = self.fc(embedding)
-        return embedding, logits
+        x = self.dropout(x)
+        if self.embedding_dim is not None:
+            embedding = self.relu_feat(self.bn_feat(self.feat(x)))
+            logits = self.fc(embedding)
+            return embedding, logits
+        logits = self.fc(x)
+        return x, logits
