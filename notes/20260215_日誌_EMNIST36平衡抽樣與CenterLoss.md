@@ -1,4 +1,4 @@
-# 2026/2/16 日誌 — EMNIST36 平衡抽樣與 Center Loss 實驗
+# 2026/2/15 日誌 — EMNIST36 平衡抽樣與 Center Loss 實驗
 
 ## 今日實驗設定
 
