@@ -1,0 +1,7 @@
+{
+  "checkpoint": "outputs/runs/20260211_085917_emnist36_resnet/best_emnist36_resnet.pt",
+  "model": "resnet",
+  "test_loss": 0.1935614451137448,
+  "test_accuracy": 0.9378947368421052,
+  "num_classes": 36
+}

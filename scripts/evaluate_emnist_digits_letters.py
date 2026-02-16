@@ -25,6 +25,7 @@ sys.path.insert(0, str(ROOT))
 from models.mlp import MLP
 from models.cnn import CNN
 from models.resnet import ResNet
+from models.vit import ViT
 from scripts.datasets import (
     get_emnist_digits_uppercase_loaders,
     EMNIST36_NUM_CLASSES,
@@ -44,6 +45,10 @@ def build_model(model_type, device):
         model = ResNet(num_classes=EMNIST36_NUM_CLASSES, dropout=0.0)
     elif model_type == "resnet_centerloss":
         model = ResNet(num_classes=EMNIST36_NUM_CLASSES, dropout=0.0, embedding_dim=128)
+    elif model_type == "resnet_centerloss_64":
+        model = ResNet(num_classes=EMNIST36_NUM_CLASSES, dropout=0.0, embedding_dim=64)
+    elif model_type == "vit":
+        model = ViT(num_classes=EMNIST36_NUM_CLASSES, dropout=0.0, pretrained=True)
     else:
         raise ValueError(f"Unknown model: {model_type}")
     return model.to(device)
@@ -155,7 +160,7 @@ def plot_confusion_matrix(cm, path, label_names):
 def main():
     p = argparse.ArgumentParser(description="Evaluate EMNIST 36-class model: embeddings, confusion, worst cases")
     p.add_argument("--checkpoint", type=str, required=True)
-    p.add_argument("--model", type=str, required=True, choices=["mlp", "cnn", "resnet", "resnet_centerloss"])
+    p.add_argument("--model", type=str, required=True, choices=["mlp", "cnn", "resnet", "resnet_centerloss", "resnet_centerloss_64", "vit"])
     p.add_argument("--output_dir", type=str, default=None)
     p.add_argument("--seed", type=int, default=SEED)
     p.add_argument("--no_tsne", action="store_true")
@@ -178,7 +183,7 @@ def main():
 
     _, _, test_loader = get_emnist_digits_uppercase_loaders(batch_size=args.batch_size, num_workers=0, seed=args.seed)
     criterion = nn.CrossEntropyLoss()
-    if args.model == "resnet_centerloss":
+    if args.model in ("resnet_centerloss", "resnet_centerloss_64"):
         model.eval()
         total_loss, correct, total = 0.0, 0, 0
         with torch.no_grad():
@@ -222,11 +227,14 @@ def main():
     plot_confusion_matrix(cm, out_dir / "confusion_matrix.png", EMNIST36_LABEL_NAMES)
     np.save(out_dir / "confusion_matrix.npy", cm)
 
-    # O/0, I/1, Z/2, S/5 個別準確率（EMNIST36: 0-9 數字, 10-35 A-Z；5→5, O→24, I→18, Z→35, S→28）
+    # 易混字對：O/0, I/1, Z/2, S/5, A/4, G/6, B/8（EMNIST36: 0-9 數字, 10-35 A-Z）
     idx_0, idx_O = 0, 24
     idx_1, idx_I = 1, 18
     idx_2, idx_Z = 2, 35
     idx_5, idx_S = 5, 28
+    idx_4, idx_A = 4, 10
+    idx_6, idx_G = 6, 16
+    idx_8, idx_B = 8, 11
 
     def per_class_acc(labels_all, preds_all, class_idx):
         mask = labels_all == class_idx
@@ -244,6 +252,12 @@ def main():
     acc_Z, n_Z = per_class_acc(labels_all, preds_all, idx_Z)
     acc_5, n_5 = per_class_acc(labels_all, preds_all, idx_5)
     acc_S, n_S = per_class_acc(labels_all, preds_all, idx_S)
+    acc_4, n_4 = per_class_acc(labels_all, preds_all, idx_4)
+    acc_A, n_A = per_class_acc(labels_all, preds_all, idx_A)
+    acc_6, n_6 = per_class_acc(labels_all, preds_all, idx_6)
+    acc_G, n_G = per_class_acc(labels_all, preds_all, idx_G)
+    acc_8, n_8 = per_class_acc(labels_all, preds_all, idx_8)
+    acc_B, n_B = per_class_acc(labels_all, preds_all, idx_B)
 
     metrics["acc_O"] = acc_O
     metrics["acc_0"] = acc_0
@@ -261,11 +275,26 @@ def main():
     metrics["acc_5"] = acc_5
     metrics["n_S"] = n_S
     metrics["n_5"] = n_5
+    metrics["acc_A"] = acc_A
+    metrics["acc_4"] = acc_4
+    metrics["n_A"] = n_A
+    metrics["n_4"] = n_4
+    metrics["acc_G"] = acc_G
+    metrics["acc_6"] = acc_6
+    metrics["n_G"] = n_G
+    metrics["n_6"] = n_6
+    metrics["acc_B"] = acc_B
+    metrics["acc_8"] = acc_8
+    metrics["n_B"] = n_B
+    metrics["n_8"] = n_8
     with open(out_dir / "metrics.json", "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2)
 
-    # 可選：每對 2×2 混淆（僅該兩類）
-    for name, (a, b) in [("O_0", (idx_O, idx_0)), ("I_1", (idx_I, idx_1)), ("Z_2", (idx_Z, idx_2)), ("S_5", (idx_S, idx_5))]:
+    # 每對 2×2 混淆（僅該兩類）
+    for name, (a, b) in [
+        ("O_0", (idx_O, idx_0)), ("I_1", (idx_I, idx_1)), ("Z_2", (idx_Z, idx_2)), ("S_5", (idx_S, idx_5)),
+        ("A_4", (idx_A, idx_4)), ("G_6", (idx_G, idx_6)), ("B_8", (idx_B, idx_8)),
+    ]:
         mask = (labels_all == a) | (labels_all == b)
         if mask.sum() == 0:
             continue

@@ -1,0 +1,11 @@
+{
+  "model": "mlp",
+  "corruption": "elastic",
+  "severity": 1,
+  "accuracy": 0.984375,
+  "loss": 0.04910038039088249,
+  "num_correct": 63,
+  "num_total": 64,
+  "accuracy_drop_pct": 1.5625,
+  "loss_increase": 0.03717062622308731
+}

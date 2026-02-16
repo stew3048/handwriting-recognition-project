@@ -21,6 +21,7 @@ sys.path.insert(0, str(ROOT))
 from models.mlp import MLP
 from models.cnn import CNN
 from models.resnet import ResNet
+from models.vit import ViT
 from scripts.datasets import (
     get_emnist_digits_uppercase_loaders,
     get_emnist36_balanced_loaders,
@@ -39,12 +40,14 @@ def build_model(model_type, num_classes, dropout=0.0):
         return CNN(num_classes=num_classes, dropout=dropout)
     if model_type == "resnet":
         return ResNet(num_classes=num_classes, dropout=dropout)
+    if model_type == "vit":
+        return ViT(num_classes=num_classes, dropout=dropout, pretrained=True)
     raise ValueError(f"Unknown model: {model_type}")
 
 
 def main():
     p = argparse.ArgumentParser(description="EMNIST 36 classes (0–9 + A–Z), Phase 1 clean baseline")
-    p.add_argument("--model", type=str, default="cnn", choices=["mlp", "cnn", "resnet"])
+    p.add_argument("--model", type=str, default="cnn", choices=["mlp", "cnn", "resnet", "vit"])
     p.add_argument("--epochs", type=int, default=15)
     p.add_argument("--batch_size", type=int, default=10, help="MNIST 用 64；EMNIST 36 資料量約 6 倍，預設 64/6≈10")
     p.add_argument("--lr", type=float, default=1e-3)

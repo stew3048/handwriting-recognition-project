@@ -1,0 +1,11 @@
+{
+  "model": "mlp",
+  "corruption": "perspective",
+  "severity": 1,
+  "accuracy": 0.890625,
+  "loss": 0.5127552151679993,
+  "num_correct": 57,
+  "num_total": 64,
+  "accuracy_drop_pct": 10.9375,
+  "loss_increase": 0.5008254610002041
+}

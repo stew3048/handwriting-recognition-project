@@ -1,0 +1,11 @@
+{
+  "model": "cnn",
+  "corruption": "perspective",
+  "severity": 3,
+  "accuracy": 0.484375,
+  "loss": 3.4193146228790283,
+  "num_correct": 31,
+  "num_total": 64,
+  "accuracy_drop_pct": 50.0,
+  "loss_increase": 3.40221518650651
+}

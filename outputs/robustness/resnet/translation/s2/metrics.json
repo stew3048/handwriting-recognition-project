@@ -1,0 +1,11 @@
+{
+  "model": "resnet",
+  "corruption": "translation",
+  "severity": 2,
+  "accuracy": 0.90625,
+  "loss": 0.25325635075569153,
+  "num_correct": 58,
+  "num_total": 64,
+  "accuracy_drop_pct": 9.375,
+  "loss_increase": 0.25064786057919264
+}

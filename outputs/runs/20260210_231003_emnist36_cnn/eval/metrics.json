@@ -1,0 +1,7 @@
+{
+  "checkpoint": "outputs/runs/20260210_231003_emnist36_cnn/best_emnist36_cnn.pt",
+  "model": "cnn",
+  "test_loss": 0.264353885642884,
+  "test_accuracy": 0.9239309210526315,
+  "num_classes": 36
+}

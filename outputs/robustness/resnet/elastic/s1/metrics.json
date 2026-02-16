@@ -1,0 +1,11 @@
+{
+  "model": "resnet",
+  "corruption": "elastic",
+  "severity": 1,
+  "accuracy": 1.0,
+  "loss": 0.014273497276008129,
+  "num_correct": 64,
+  "num_total": 64,
+  "accuracy_drop_pct": 0.0,
+  "loss_increase": 0.01166500709950924
+}

@@ -1,0 +1,11 @@
+{
+  "model": "cnn",
+  "corruption": "shear",
+  "severity": 3,
+  "accuracy": 0.96875,
+  "loss": 0.035310592502355576,
+  "num_correct": 62,
+  "num_total": 64,
+  "accuracy_drop_pct": 1.5625,
+  "loss_increase": 0.018211156129837036
+}

@@ -63,12 +63,14 @@ class ResNet(nn.Module):
         self.layer3 = self._make_layer(32, 64, 2, stride=2)
         self.avgpool = nn.AdaptiveAvgPool2d(1)
         self.dropout = nn.Dropout(dropout)
-        if embedding_dim is not None:
+        if embedding_dim is not None and embedding_dim != 64:
+            # 升維：64 -> embedding_dim -> num_classes
             self.feat = nn.Linear(64, embedding_dim)
             self.bn_feat = nn.BatchNorm1d(embedding_dim)
             self.relu_feat = nn.ReLU(inplace=True)
             self.fc = nn.Linear(embedding_dim, num_classes)
         else:
+            # embedding_dim is None：只做分類；embedding_dim == 64：不升維，64 維即 embedding
             self.feat = None
             self.bn_feat = None
             self.relu_feat = None
@@ -89,6 +91,10 @@ class ResNet(nn.Module):
         x = torch.flatten(x, 1)
         x = self.dropout(x)
         if self.embedding_dim is not None:
+            if self.embedding_dim == 64:
+                embeddings = x
+                logits = self.fc(embeddings)
+                return logits, embeddings
             embeddings = self.relu_feat(self.bn_feat(self.feat(x)))
             logits = self.fc(embeddings)
             return logits, embeddings
@@ -104,6 +110,10 @@ class ResNet(nn.Module):
         x = torch.flatten(x, 1)
         x = self.dropout(x)
         if self.embedding_dim is not None:
+            if self.embedding_dim == 64:
+                embedding = x
+                logits = self.fc(embedding)
+                return embedding, logits
             embedding = self.relu_feat(self.bn_feat(self.feat(x)))
             logits = self.fc(embedding)
             return embedding, logits
