@@ -247,14 +247,15 @@
 - 80% 機率：不做擴增
 - **不做 RandomErasing**
 
-**資料處理**（與 v3 一致）:
+**資料處理**（與 v3 **不一致**）:
 - **所有類別都只做 ToTensor，不做 Normalize**
 - 數值範圍：[0.0, 1.0]
+- **重要修正**：v3 實際訓練時**有做 Normalize**，溫和均衡版**不做 Normalize**，兩者不一致
 
 **實際代碼**（`scripts/datasets.py` 第 512-517 行）：
 ```python
 def _to_tensor_only():
-    """僅做 ToTensor，不做 Normalize（與 v3 一致）"""
+    """僅做 ToTensor，不做 Normalize（注意：v3 有做 Normalize，此版本與 v3 不一致）"""
     return transforms.Compose([
         transforms.ToTensor(),                    # PIL → Tensor, [0,255] → [0.0,1.0]
         transforms.Lambda(lambda x: x.transpose(1, 2)),  # 交換 H 和 W，修正 EMNIST 方向
@@ -263,8 +264,9 @@ def _to_tensor_only():
 ```
 
 **與 v2/v3 的對比**：
-- **v2/v3**: `_transpose_and_normalize()` = ToTensor + Transpose + **Normalize**
-- **溫和均衡版**: `_to_tensor_only()` = ToTensor + Transpose（**沒有 Normalize**）
+- **v2/v3**: `_transpose_and_normalize()` = ToTensor + Transpose + **Normalize**（數值範圍 [-1.0, 1.0]）
+- **溫和均衡版**: `_to_tensor_only()` = ToTensor + Transpose（**沒有 Normalize**，數值範圍 [0.0, 1.0]）
+- **修正說明**：之前註解中寫「與 v3 一致」是錯誤的，已修正為「與 v3 不一致」
 
 **不做 Normalize 的優點與弱點**：
 
@@ -329,6 +331,32 @@ def _to_tensor_only():
 - 不過度聚焦目標類別，保持整體性能
 - 使用更溫和的擴增和損失函數策略
 
+### 4.3 資料分割邏輯確認
+
+**資料分割流程**：
+1. `train_subset = get_balanced_subset_precision(...)` 
+   - 0/O/1/I 每類：15,000 筆
+   - 其他類別每類：5,000 筆
+   - 總計：220,000 筆
+
+2. `train_part, val_part = random_split(train_subset, [n_train, n_val], ...)`
+   - `val_part` 是從 `train_subset` 中隨機分割出來的（約 10%）
+   - `train_part` 是 `train_subset` 的另一部分（約 90%）
+
+**驗證集（val）的資料分布**：
+- 0/O/1/I 每類在 val 中約有：15,000 × 0.1 ≈ 1,500 筆
+- 其他類別每類在 val 中約有：5,000 × 0.1 ≈ 500 筆
+
+**資料洩漏檢查**：
+- ✅ **已驗證**：`random_split` 產生**互斥**的子集，train 和 val **完全沒有重疊**
+- ✅ **無資料洩漏**：train 沒有「偷看」過 val 資料
+- ✅ **符合最佳實踐**：這是標準的資料分割方式
+
+**驗證方法**：
+- 使用 `random_split` 測試：100 筆資料分成 80/20
+- 結果：Train 80 筆 + Val 20 筆 = 100 筆（總數）
+- 重疊：0 筆（完全互斥）
+
 ---
 
 ## 5. 今日總結
@@ -354,7 +382,7 @@ def _to_tensor_only():
    - 公平權重（所有類別 1.0）
    - 更溫和的擴增（20% 機率，較小參數）
    - 不做 RandomErasing
-   - 不做 Normalize（與 v3 一致）
+   - 不做 Normalize（與 v3 **不一致**，v3 有做 Normalize）
 
 ### 5.3 下一步
 

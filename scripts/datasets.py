@@ -510,7 +510,7 @@ def get_emnist36_balanced_refined_loaders(
     data_dir = Path(data_dir)
 
     def _to_tensor_only():
-        """僅做 ToTensor，不做 Normalize（與 v3 一致）"""
+        """僅做 ToTensor，不做 Normalize（注意：v3 有做 Normalize，此版本與 v3 不一致）"""
         return transforms.Compose([
             transforms.ToTensor(),
             transforms.Lambda(lambda x: x.transpose(1, 2)),
@@ -570,7 +570,7 @@ def get_emnist36_balanced_refined_loaders(
     )
 
     # 僅對 0/O/1/I 做擴增：RandomAffine(degrees=10, translate=(0.1, 0.1))，20% 機率
-    # 所有類別都只做 ToTensor，不做 Normalize（與 v3 一致）
+    # 所有類別都只做 ToTensor，不做 Normalize（注意：v3 有做 Normalize，此版本與 v3 不一致）
     to_tensor_only = transforms.Compose([
         transforms.ToTensor(),
         transforms.Lambda(lambda x: x.transpose(1, 2)),
