@@ -28,6 +28,9 @@ from models.resnet import ResNet
 from models.vit import ViT
 from scripts.datasets import (
     get_emnist_digits_uppercase_loaders,
+    get_emnist36_balanced_loaders,
+    get_emnist36_precision_targeting_loaders,
+    get_emnist36_balanced_refined_loaders,
     EMNIST36_NUM_CLASSES,
     EMNIST36_LABEL_NAMES,
 )
@@ -167,6 +170,12 @@ def main():
     p.add_argument("--tsne_sample", type=int, default=2000)
     p.add_argument("--batch_size", type=int, default=64, help="評估時 batch 大小，顯存不足可改小或加 --cpu")
     p.add_argument("--cpu", action="store_true")
+    p.add_argument("--samples_per_class_test", type=int, default=800,
+                   help="測試集每類最多幾筆，與訓練時一致則用 800；0 表示用完整 test（不建議）")
+    p.add_argument("--use_precision_test", action="store_true",
+                   help="使用精準打擊版 test 分布：0/O/1/I 每類 2400，其餘 800（與 train 同分布 3:1）")
+    p.add_argument("--use_balanced_refined_test", action="store_true",
+                   help="使用溫和均衡版 test 分布：每類 800 筆（平衡分布，公正衡量）")
     args = p.parse_args()
 
     np.random.seed(args.seed)
@@ -181,7 +190,43 @@ def main():
     model.load_state_dict(ckpt["model_state_dict"])
     model.eval()
 
-    _, _, test_loader = get_emnist_digits_uppercase_loaders(batch_size=args.batch_size, num_workers=0, seed=args.seed)
+    # 與訓練一致：用平衡 test（每類 samples_per_class_test 筆），避免 train 平衡、test 不平衡
+    # 若 --use_precision_test，則用精準打擊版分布（四類 2400、其餘 800，與 train 同分布）
+    # 若 --use_balanced_refined_test，則用溫和均衡版分布（每類 800 筆，平衡分布，公正衡量）
+    if args.use_balanced_refined_test:
+        _, _, test_loader = get_emnist36_balanced_refined_loaders(
+            target_classes=(0, 24, 1, 18),
+            target_per_class=15000,
+            other_per_class=5000,
+            samples_per_class_test=800,  # 平衡分布：每類 800 筆
+            batch_size=args.batch_size,
+            num_workers=0,
+            seed=args.seed,
+        )
+    elif args.use_precision_test:
+        _, _, test_loader = get_emnist36_precision_targeting_loaders(
+            target_classes=(0, 24, 1, 18),
+            target_per_class=15000,
+            other_per_class=5000,
+            samples_per_class_test=800,
+            test_target_per_class=2400,
+            test_other_per_class=800,
+            batch_size=args.batch_size,
+            num_workers=0,
+            seed=args.seed,
+        )
+    elif args.samples_per_class_test > 0:
+        _, _, test_loader = get_emnist36_balanced_loaders(
+            samples_per_class_train=5000,
+            samples_per_class_test=args.samples_per_class_test,
+            batch_size=args.batch_size,
+            num_workers=0,
+            seed=args.seed,
+        )
+    else:
+        _, _, test_loader = get_emnist_digits_uppercase_loaders(
+            batch_size=args.batch_size, num_workers=0, seed=args.seed,
+        )
     criterion = nn.CrossEntropyLoss()
     if args.model in ("resnet_centerloss", "resnet_centerloss_64"):
         model.eval()

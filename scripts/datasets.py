@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from torch.utils.data import Dataset, ConcatDataset, DataLoader, random_split, Subset
+from torch.utils.data import ConcatDataset, DataLoader, Dataset, random_split, Subset
 from torchvision import transforms
 from torchvision.datasets import MNIST, EMNIST
 from torchvision.datasets.utils import download_and_extract_archive, extract_archive
@@ -207,6 +207,108 @@ def get_balanced_subset(dataset, samples_per_class, num_classes=36, seed=42):
     return Subset(dataset, indices)
 
 
+def get_balanced_subset_precision(
+    dataset,
+    num_classes=36,
+    target_classes=(0, 24, 1, 18),
+    target_per_class=15000,
+    other_per_class=5000,
+    seed=42,
+):
+    """
+    精準打擊：target_classes 每類取 target_per_class 筆（可過採樣），其餘每類 other_per_class。
+    target_classes 預設為 0, O(24), 1, I(18)。不足時有幾筆取幾筆；過採樣時用 replacement。
+    """
+    class_to_indices = [[] for _ in range(num_classes)]
+    rng = random.Random(seed)
+    for i in range(len(dataset)):
+        _, label = dataset[i]
+        if 0 <= label < num_classes:
+            class_to_indices[label].append(i)
+    indices = []
+    for c in range(num_classes):
+        pool = class_to_indices[c]
+        if not pool:
+            continue
+        if c in target_classes:
+            n = target_per_class
+            if n <= len(pool):
+                indices.extend(rng.sample(pool, n))
+            else:
+                indices.extend(rng.choices(pool, k=n))
+        else:
+            n = min(other_per_class, len(pool))
+            indices.extend(rng.sample(pool, n))
+    return Subset(dataset, indices)
+
+
+class TransformWrapper(Dataset):
+    """對每筆 (img, label) 套用 transform(img)，用於 val 等需統一 ToTensor+Normalize 的場合。"""
+
+    def __init__(self, subset, transform):
+        self.subset = subset
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.subset)
+
+    def __getitem__(self, idx):
+        img, label = self.subset[idx]
+        return self.transform(img), label
+
+
+class PerClassAugmentWrapper(Dataset):
+    """
+    對指定類別套用「動態」擴增，輸入為 PIL，輸出為 Tensor。
+    順序嚴格：RandomAffine(PIL) -> ToTensor -> Normalize -> RandomErasing(Tensor)。
+    - light_transform / strong_transform：整條鏈（含 ToTensor、Normalize）；strong 末端為 RandomErasing。
+    - 非目標類別僅套用 base_transform（ToTensor + Normalize）。
+    """
+
+    def __init__(self, subset, target_classes, light_transform, strong_transform, base_transform, p=0.5):
+        self.subset = subset
+        self.target_classes = set(target_classes)
+        self.light_transform = light_transform
+        self.strong_transform = strong_transform
+        self.base_transform = base_transform
+        self.p = p
+
+    def __len__(self):
+        return len(self.subset)
+
+    def __getitem__(self, idx):
+        img, label = self.subset[idx]
+        if label in self.target_classes:
+            if random.random() < self.p:
+                img = self.strong_transform(img)
+            else:
+                img = self.light_transform(img)
+        else:
+            img = self.base_transform(img)
+        return img, label
+
+
+class UniformAugmentWrapper(Dataset):
+    """所有類別統一擴增：以機率 p 套用 augment_transform，否則用 base_transform。"""
+
+    def __init__(self, subset, augment_transform, base_transform, p=0.3):
+        self.subset = subset
+        self.augment_transform = augment_transform
+        self.base_transform = base_transform
+        self.p = p
+
+    def __len__(self):
+        return len(self.subset)
+
+    def __getitem__(self, idx):
+        img, label = self.subset[idx]
+        if random.random() < self.p:
+            img = self.augment_transform(img)
+        else:
+            img = self.base_transform(img)
+        return img, label
+
+
 def get_emnist_digits_uppercase_loaders(
     batch_size=64,
     val_ratio=0.1,
@@ -382,4 +484,227 @@ def get_emnist36_balanced_loaders(
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers)
     test_loader = DataLoader(test_subset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
+    return train_loader, val_loader, test_loader
+
+
+def get_emnist36_balanced_refined_loaders(
+    target_classes=(0, 24, 1, 18),  # 0, O, 1, I
+    target_per_class=15000,
+    other_per_class=5000,
+    samples_per_class_test=800,
+    batch_size=64,
+    val_ratio=0.1,
+    data_dir=None,
+    num_workers=0,
+    seed=42,
+    use_memmap=True,
+):
+    """
+    溫和均衡版：0, O(24), 1, I(18) 每類 target_per_class（15000），其餘 other_per_class（5000）。
+    僅對 0/O/1/I 做擴增：RandomAffine(degrees=10, translate=(0.1, 0.1))，20% 機率套用。
+    不做 RandomErasing。
+    Test 使用平衡分布：每類 samples_per_class_test 筆（公正衡量）。
+    回傳 train_loader, val_loader, test_loader。
+    """
+    data_dir = data_dir or _data_root() / "emnist"
+    data_dir = Path(data_dir)
+
+    def _to_tensor_only():
+        """僅做 ToTensor，不做 Normalize（與 v3 一致）"""
+        return transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Lambda(lambda x: x.transpose(1, 2)),
+        ])
+
+    transform_test = _to_tensor_only()
+    transform_train_pil = None  # 保持 PIL，讓 wrapper 內做擴增
+
+    if use_memmap:
+        _ensure_emnist_raw(str(data_dir))
+        digits_train = EMNISTMemmap(str(data_dir), "digits", train=True, transform=transform_train_pil)
+        digits_test = EMNISTMemmap(str(data_dir), "digits", train=False, transform=transform_test)
+        letters_train = EMNISTMemmap(
+            str(data_dir), "letters", train=True,
+            transform=transform_train_pil,
+            target_transform=lambda y: y - 1 + 10,
+        )
+        letters_test = EMNISTMemmap(
+            str(data_dir), "letters", train=False,
+            transform=transform_test,
+            target_transform=lambda y: y - 1 + 10,
+        )
+    else:
+        digits_train = EMNIST(str(data_dir), "digits", train=True, download=True, transform=transform_train_pil)
+        digits_test = EMNIST(str(data_dir), "digits", train=False, download=True, transform=transform_test)
+        letters_train = EMNIST(
+            str(data_dir), "letters", train=True, download=True,
+            transform=transform_train_pil,
+            target_transform=lambda y: y - 1 + 10,
+        )
+        letters_test = EMNIST(
+            str(data_dir), "letters", train=False, download=True,
+            transform=transform_test,
+            target_transform=lambda y: y - 1 + 10,
+        )
+
+    full_train = ConcatDataset([digits_train, letters_train])
+    test_ds = ConcatDataset([digits_test, letters_test])
+
+    train_subset = get_balanced_subset_precision(
+        full_train,
+        num_classes=36,
+        target_classes=target_classes,
+        target_per_class=target_per_class,
+        other_per_class=other_per_class,
+        seed=seed,
+    )
+    # Test 使用平衡分布：每類 samples_per_class_test 筆（公正衡量）
+    test_subset = get_balanced_subset(test_ds, samples_per_class_test, num_classes=36, seed=seed)
+
+    n = len(train_subset)
+    n_val = int(n * val_ratio)
+    n_train = n - n_val
+    train_part, val_part = random_split(
+        train_subset, [n_train, n_val],
+        generator=torch.Generator().manual_seed(seed),
+    )
+
+    # 僅對 0/O/1/I 做擴增：RandomAffine(degrees=10, translate=(0.1, 0.1))，20% 機率
+    # 所有類別都只做 ToTensor，不做 Normalize（與 v3 一致）
+    to_tensor_only = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Lambda(lambda x: x.transpose(1, 2)),
+    ])
+    augment_transform = transforms.Compose([
+        transforms.RandomAffine(degrees=10, translate=(0.1, 0.1)),
+        to_tensor_only,  # 擴增後也只做 ToTensor，不做 Normalize
+    ])
+    # PerClassAugmentWrapper: target_classes 以機率 p 用 strong_transform（擴增），否則用 light_transform（不擴增）
+    # 非 target_classes 用 base_transform（僅 ToTensor，不做 Normalize）
+    train_ds = PerClassAugmentWrapper(train_part, target_classes, to_tensor_only, augment_transform, to_tensor_only, p=0.2)
+    val_ds = TransformWrapper(val_part, to_tensor_only)
+
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    test_loader = DataLoader(test_subset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+
+    return train_loader, val_loader, test_loader
+
+
+def get_emnist36_precision_targeting_loaders(
+    target_classes=(0, 24, 1, 18),
+    target_per_class=15000,
+    other_per_class=5000,
+    samples_per_class_test=800,
+    test_target_per_class=None,
+    test_other_per_class=None,
+    batch_size=64,
+    val_ratio=0.1,
+    data_dir=None,
+    num_workers=0,
+    seed=42,
+    use_memmap=True,
+):
+    """
+    精準打擊：0, O(24), 1, I(18) 四類每類 target_per_class（3x 過採樣 15000），其餘 other_per_class（5000）。
+    魔王類動態擴增：每筆進入前以機率 p=0.5 僅輕微旋轉，50% 機率施加強力 RandomAffine + RandomErasing。
+    Test：若 test_target_per_class / test_other_per_class 有給，則 test 也同分布；否則每類 samples_per_class_test 平衡。
+    回傳 train_loader, val_loader, test_loader。
+    """
+    data_dir = data_dir or _data_root() / "emnist"
+    data_dir = Path(data_dir)
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    def _to_tensor_norm():
+        return transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Lambda(lambda x: x.transpose(1, 2)),
+            transforms.Normalize((0.5,), (0.5,)),
+        ])
+
+    transform_test = _to_tensor_norm()
+    # 精準打擊：train 先不轉 Tensor，讓 wrapper 內做 RandomAffine(PIL) -> ToTensor -> Normalize -> RandomErasing(Tensor)
+    transform_train_pil = None
+
+    if use_memmap:
+        _ensure_emnist_raw(str(data_dir))
+        digits_train = EMNISTMemmap(str(data_dir), "digits", train=True, transform=transform_train_pil)
+        digits_test = EMNISTMemmap(str(data_dir), "digits", train=False, transform=transform_test)
+        letters_train = EMNISTMemmap(
+            str(data_dir), "letters", train=True,
+            transform=transform_train_pil,
+            target_transform=lambda y: y - 1 + 10,
+        )
+        letters_test = EMNISTMemmap(
+            str(data_dir), "letters", train=False,
+            transform=transform_test,
+            target_transform=lambda y: y - 1 + 10,
+        )
+    else:
+        digits_train = EMNIST(
+            root=str(data_dir), split="digits", train=True, download=True,
+            transform=transform_train_pil,
+        )
+        digits_test = EMNIST(
+            root=str(data_dir), split="digits", train=False, download=True,
+            transform=transform_test,
+        )
+        letters_train = EMNIST(
+            root=str(data_dir), split="letters", train=True, download=True,
+            transform=transform_train_pil,
+            target_transform=lambda y: y - 1 + 10,
+        )
+        letters_test = EMNIST(
+            root=str(data_dir), split="letters", train=False, download=True,
+            transform=transform_test,
+            target_transform=lambda y: y - 1 + 10,
+        )
+
+    full_train = ConcatDataset([digits_train, letters_train])
+    test_ds = ConcatDataset([digits_test, letters_test])
+
+    train_subset = get_balanced_subset_precision(
+        full_train,
+        num_classes=36,
+        target_classes=target_classes,
+        target_per_class=target_per_class,
+        other_per_class=other_per_class,
+        seed=seed,
+    )
+    if test_target_per_class is not None and test_other_per_class is not None:
+        test_subset = get_balanced_subset_precision(
+            test_ds,
+            num_classes=36,
+            target_classes=target_classes,
+            target_per_class=test_target_per_class,
+            other_per_class=test_other_per_class,
+            seed=seed,
+        )
+    else:
+        test_subset = get_balanced_subset(test_ds, samples_per_class_test, num_classes=36, seed=seed)
+
+    n = len(train_subset)
+    n_val = int(n * val_ratio)
+    n_train = n - n_val
+    train_part, val_part = random_split(
+        train_subset, [n_train, n_val],
+        generator=torch.Generator().manual_seed(seed),
+    )
+    # 順序：RandomAffine(PIL) -> ToTensor -> Normalize -> RandomErasing(Tensor)，RandomErasing 僅作用於 Tensor
+    to_tensor_norm = _to_tensor_norm()
+    light_aug = transforms.Compose([
+        transforms.RandomAffine(degrees=5, translate=(0.05, 0.05)),
+        to_tensor_norm,
+    ])
+    strong_aug = transforms.Compose([
+        transforms.RandomAffine(degrees=20, translate=(0.15, 0.15)),
+        to_tensor_norm,
+        transforms.RandomErasing(p=1.0, scale=(0.02, 0.2), ratio=(0.3, 3.3), value=0.5),
+    ])
+    train_ds = PerClassAugmentWrapper(train_part, target_classes, light_aug, strong_aug, to_tensor_norm, p=0.5)
+    val_ds = TransformWrapper(val_part, to_tensor_norm)
+
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    test_loader = DataLoader(test_subset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
     return train_loader, val_loader, test_loader
